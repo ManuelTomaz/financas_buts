@@ -1,6 +1,8 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
 const STORAGE_KEY = "financas_supabase_config_v1";
+const EMBEDDED_SUPABASE_URL = "https://pakxecgwpuevczusngoo.supabase.co";
+const EMBEDDED_SUPABASE_ANON_KEY = "sb_publishable_SCD8S0hgJ4gOa7CXyAh3QQ_y2dzysC7";
 const SETUP_SQL = `create table if not exists public.transactions (
   id bigserial primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -114,6 +116,26 @@ function setupUI() {
   $("btn-open-setup").classList.remove("hidden");
 }
 
+function setSettingsButtonVisible(visible) {
+  $("btn-open-settings").classList.toggle("hidden", !visible);
+}
+
+function getEmbeddedConfig() {
+  const fromWindow = window.__FINANCAS_SUPABASE_CONFIG__;
+  const url = String(fromWindow?.url || EMBEDDED_SUPABASE_URL || "").trim();
+  const anon = String(fromWindow?.anon || EMBEDDED_SUPABASE_ANON_KEY || "").trim();
+  if (!url || !anon) return null;
+  if (url.includes("xxxx.supabase.co")) return null;
+  if (anon.includes("eyJhbGciOi")) return { url, anon };
+  if (anon.startsWith("sb_publishable_")) return { url, anon };
+  if (anon.startsWith("ey")) return { url, anon };
+  return { url, anon };
+}
+
+function getEffectiveConfig() {
+  return getEmbeddedConfig() || loadConfig();
+}
+
 async function copySetupSQL() {
   const text = $("setup-sql").value;
   try {
@@ -182,9 +204,9 @@ function kindLabel(kind) {
 }
 
 function loadConfig() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return null;
   try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (!parsed.url || !parsed.anon) return null;
@@ -199,12 +221,20 @@ function saveConfig(url, anon) {
   if (!payload.url || !payload.anon) {
     throw new Error("Preencha SUPABASE_URL e SUPABASE_ANON_KEY.");
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (e) {
+    throw new Error("Não foi possível salvar no navegador. Tente fora do modo anônimo/privado e permita armazenamento do site.");
+  }
   return payload;
 }
 
 function clearConfig() {
-  localStorage.removeItem(STORAGE_KEY);
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    return;
+  }
 }
 
 let supabase = null;
@@ -213,14 +243,33 @@ let refreshInFlight = false;
 let refreshQueued = false;
 let authActionInFlight = false;
 
+function getConfigFromUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const url = params.get("supabase_url") || params.get("SUPABASE_URL");
+  const anon = params.get("supabase_anon_key") || params.get("SUPABASE_ANON_KEY");
+  if (!url || !anon) return null;
+  return { url, anon };
+}
+
+function stripSensitiveUrlParams() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("supabase_url");
+  url.searchParams.delete("SUPABASE_URL");
+  url.searchParams.delete("supabase_anon_key");
+  url.searchParams.delete("SUPABASE_ANON_KEY");
+  history.replaceState(null, "", url.toString());
+}
+
 async function ensureClient() {
   if (supabase) return supabase;
-  const cfg = loadConfig();
+  const cfg = getEffectiveConfig();
   if (!cfg) {
+    setSettingsButtonVisible(true);
     showOnly("settings");
     setStatus("Configure o Supabase para continuar.", "error");
     return null;
   }
+  setSettingsButtonVisible(!getEmbeddedConfig());
   supabase = createClient(cfg.url, cfg.anon);
   return supabase;
 }
@@ -827,6 +876,33 @@ async function bootstrap() {
   $("bal-date").value = nowISODate();
   $("rb-start").value = nowISOMonth();
   $("rb-day").value = "5";
+
+  const fromUrl = getConfigFromUrlParams();
+  if (fromUrl) {
+    try {
+      saveConfig(fromUrl.url, fromUrl.anon);
+      supabase = null;
+      stripSensitiveUrlParams();
+    } catch (e) {
+      setSettingsButtonVisible(true);
+      showOnly("settings");
+      syncSettingsUI();
+      setStatus(String(e?.message || e), "error");
+      return;
+    }
+  }
+
+  const existing = getEffectiveConfig();
+  if (!existing) {
+    setSettingsButtonVisible(true);
+    showOnly("settings");
+    syncSettingsUI();
+    setStatus("Configure o Supabase para continuar. Depois disso, a tela inicial será o login.", "info");
+    return;
+  }
+
+  showOnly("auth");
+  setStatus("Entre para acessar seus dados.", "info");
 
   const client = await ensureClient();
   if (!client) return;
