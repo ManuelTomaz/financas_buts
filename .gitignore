@@ -1,0 +1,4 @@
+financas.sqlite
+*.sqlite
+__pycache__/
+*.pyc

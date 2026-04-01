@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Finanças</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900">
+    <div class="mx-auto max-w-6xl p-4 sm:p-6">
+      <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-tight">Finanças</h1>
+          <p class="text-sm text-slate-600">Controle mensal e anual com Supabase</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btn-open-settings" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">
+            Configuração
+          </button>
+          <button id="btn-open-setup" class="hidden rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">
+            Setup do banco
+          </button>
+          <button id="btn-signout" class="hidden rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
+            Sair
+          </button>
+        </div>
+      </header>
+
+      <main class="mt-6 space-y-6">
+        <section id="settings" class="hidden rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-lg font-semibold">Configuração do Supabase</h2>
+              <p class="mt-1 text-sm text-slate-600">As chaves ficam salvas no seu navegador (localStorage).</p>
+            </div>
+            <button id="btn-close-settings" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">
+              Fechar
+            </button>
+          </div>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <label class="block">
+              <span class="text-sm font-medium text-slate-700">SUPABASE_URL</span>
+              <input id="supabase-url" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="https://xxxx.supabase.co" />
+            </label>
+            <label class="block">
+              <span class="text-sm font-medium text-slate-700">SUPABASE_ANON_KEY</span>
+              <input id="supabase-anon" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="eyJhbGciOi..." />
+            </label>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button id="btn-save-settings" class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
+              Salvar
+            </button>
+            <button id="btn-clear-settings" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">
+              Limpar
+            </button>
+          </div>
+          <div class="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+            <div class="font-medium">Sem Supabase ainda?</div>
+            <div class="mt-1">Você pode usar esta tela depois de criar o projeto e as tabelas.</div>
+          </div>
+        </section>
+
+        <section id="setup" class="hidden rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-lg font-semibold">Setup do banco (Supabase)</h2>
+              <p class="mt-1 text-sm text-slate-600">Cole este SQL no SQL Editor do seu projeto para criar tabelas e permissões.</p>
+            </div>
+            <button id="btn-close-setup" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">
+              Fechar
+            </button>
+          </div>
+          <div class="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+            <div class="font-medium">Passo a passo</div>
+            <div class="mt-1">Supabase → SQL Editor → New query → cole o SQL → Run.</div>
+            <div class="mt-1">Depois volte aqui e clique em “Atualizar” no topo.</div>
+          </div>
+          <div class="mt-4">
+            <label class="block">
+              <span class="text-sm font-medium text-slate-700">SQL</span>
+              <textarea id="setup-sql" rows="16" readonly class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-5 outline-none focus:ring-2 focus:ring-slate-900/10"></textarea>
+            </label>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button id="btn-copy-setup" class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
+              Copiar SQL
+            </button>
+            <button id="btn-back-to-auth" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">
+              Voltar
+            </button>
+          </div>
+        </section>
+
+        <section id="auth" class="hidden rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+          <h2 class="text-lg font-semibold">Entrar</h2>
+          <p class="mt-1 text-sm text-slate-600">Use seu e-mail e senha do Supabase Auth.</p>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <label class="block">
+              <span class="text-sm font-medium text-slate-700">E-mail</span>
+              <input id="auth-email" type="email" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="seu@email.com" />
+            </label>
+            <label class="block">
+              <span class="text-sm font-medium text-slate-700">Senha</span>
+              <input id="auth-password" type="password" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="********" />
+            </label>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button id="btn-signin" class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
+              Entrar
+            </button>
+            <button id="btn-signup" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">
+              Criar conta
+            </button>
+          </div>
+        </section>
+
+        <section id="app" class="hidden space-y-6">
+          <section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 class="text-lg font-semibold">Painel</h2>
+                <p id="user-label" class="mt-1 text-sm text-slate-600"></p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <label class="text-sm font-medium text-slate-700">
+                  Mês
+                  <input id="month-picker" type="month" class="ml-2 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" />
+                </label>
+                <button id="btn-refresh" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">Atualizar</button>
+              </div>
+            </div>
+
+            <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div class="rounded-2xl bg-slate-50 p-4">
+                <div class="text-sm text-slate-600">Entradas</div>
+                <div id="kpi-income" class="mt-1 text-xl font-semibold">—</div>
+              </div>
+              <div class="rounded-2xl bg-slate-50 p-4">
+                <div class="text-sm text-slate-600">Despesas</div>
+                <div id="kpi-expense" class="mt-1 text-xl font-semibold">—</div>
+              </div>
+              <div class="rounded-2xl bg-slate-50 p-4">
+                <div class="text-sm text-slate-600">Cartão</div>
+                <div id="kpi-credit" class="mt-1 text-xl font-semibold">—</div>
+              </div>
+              <div class="rounded-2xl bg-slate-50 p-4">
+                <div class="text-sm text-slate-600">Resultado</div>
+                <div id="kpi-net" class="mt-1 text-xl font-semibold">—</div>
+              </div>
+            </div>
+
+            <div class="mt-5 grid gap-3 sm:grid-cols-2">
+              <div class="rounded-2xl bg-slate-50 p-4">
+                <div class="text-sm text-slate-600">Saldo (último do mês)</div>
+                <div id="kpi-balance" class="mt-1 text-xl font-semibold">—</div>
+              </div>
+              <div class="rounded-2xl bg-slate-50 p-4">
+                <div class="text-sm text-slate-600">Contas em aberto (vencem no mês)</div>
+                <div id="kpi-bills-open" class="mt-1 text-xl font-semibold">—</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="grid gap-6 lg:grid-cols-2">
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+              <div class="flex items-center justify-between gap-3">
+                <h3 class="text-base font-semibold">Novo lançamento</h3>
+              </div>
+              <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Tipo</span>
+                  <select id="tx-kind" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10">
+                    <option value="income">Entrada</option>
+                    <option value="expense">Despesa</option>
+                    <option value="credit">Fatura cartão</option>
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Data</span>
+                  <input id="tx-date" type="date" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" />
+                </label>
+                <label class="block sm:col-span-2">
+                  <span class="text-sm font-medium text-slate-700">Descrição</span>
+                  <input id="tx-desc" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Ex: Salário, Mercado..." />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Categoria</span>
+                  <input id="tx-cat" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Opcional" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Valor</span>
+                  <input id="tx-amount" inputmode="decimal" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Ex: 123,45" />
+                </label>
+              </div>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button id="btn-add-tx" class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Salvar</button>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+              <h3 class="text-base font-semibold">Conta a pagar</h3>
+              <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Vencimento</span>
+                  <input id="bill-due" type="date" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Valor</span>
+                  <input id="bill-amount" inputmode="decimal" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Ex: 120,00" />
+                </label>
+                <label class="block sm:col-span-2">
+                  <span class="text-sm font-medium text-slate-700">Descrição</span>
+                  <input id="bill-desc" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Ex: Aluguel, Internet..." />
+                </label>
+                <label class="block sm:col-span-2">
+                  <span class="text-sm font-medium text-slate-700">Categoria</span>
+                  <input id="bill-cat" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Opcional" />
+                </label>
+              </div>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button id="btn-add-bill" class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Salvar</button>
+              </div>
+            </section>
+          </section>
+
+          <section class="grid gap-6 lg:grid-cols-2">
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+              <h3 class="text-base font-semibold">Saldo do banco</h3>
+              <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Data</span>
+                  <input id="bal-date" type="date" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Saldo</span>
+                  <input id="bal-amount" inputmode="decimal" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Ex: 1000,00" />
+                </label>
+                <label class="block sm:col-span-2">
+                  <span class="text-sm font-medium text-slate-700">Banco/Conta</span>
+                  <input id="bal-bank" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Ex: Nubank, Itaú..." />
+                </label>
+              </div>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button id="btn-add-balance" class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Salvar</button>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 class="text-base font-semibold">Contas recorrentes</h3>
+                  <p class="mt-1 text-sm text-slate-600">Use “Gerar do mês” para criar as contas desse mês automaticamente.</p>
+                </div>
+                <button id="btn-generate-recurring" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">Gerar do mês</button>
+              </div>
+              <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <label class="block sm:col-span-2">
+                  <span class="text-sm font-medium text-slate-700">Descrição</span>
+                  <input id="rb-desc" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Ex: Aluguel" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Dia (1–28)</span>
+                  <input id="rb-day" type="number" min="1" max="28" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Valor</span>
+                  <input id="rb-amount" inputmode="decimal" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Ex: 1500,00" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Início</span>
+                  <input id="rb-start" type="month" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" />
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Fim (opcional)</span>
+                  <input id="rb-end" type="month" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" />
+                </label>
+                <label class="block sm:col-span-2">
+                  <span class="text-sm font-medium text-slate-700">Categoria</span>
+                  <input id="rb-cat" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/10" placeholder="Opcional" />
+                </label>
+              </div>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button id="btn-add-recurring" class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Salvar recorrente</button>
+              </div>
+              <div class="mt-4">
+                <div class="text-sm font-medium text-slate-700">Lista</div>
+                <div class="mt-2 overflow-auto rounded-xl border border-slate-200">
+                  <table class="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead class="bg-slate-50">
+                      <tr class="text-left">
+                        <th class="px-3 py-2 font-medium text-slate-700">Descrição</th>
+                        <th class="px-3 py-2 font-medium text-slate-700">Dia</th>
+                        <th class="px-3 py-2 font-medium text-slate-700">Valor</th>
+                        <th class="px-3 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="rb-table" class="divide-y divide-slate-200 bg-white"></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h3 class="text-base font-semibold">Lançamentos do mês</h3>
+            </div>
+            <div class="mt-3 overflow-auto rounded-xl border border-slate-200">
+              <table class="min-w-full divide-y divide-slate-200 text-sm">
+                <thead class="bg-slate-50">
+                  <tr class="text-left">
+                    <th class="px-3 py-2 font-medium text-slate-700">Data</th>
+                    <th class="px-3 py-2 font-medium text-slate-700">Tipo</th>
+                    <th class="px-3 py-2 font-medium text-slate-700">Descrição</th>
+                    <th class="px-3 py-2 font-medium text-slate-700">Categoria</th>
+                    <th class="px-3 py-2 font-medium text-slate-700">Valor</th>
+                    <th class="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody id="tx-table" class="divide-y divide-slate-200 bg-white"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h3 class="text-base font-semibold">Contas do mês (vencimento)</h3>
+            </div>
+            <div class="mt-3 overflow-auto rounded-xl border border-slate-200">
+              <table class="min-w-full divide-y divide-slate-200 text-sm">
+                <thead class="bg-slate-50">
+                  <tr class="text-left">
+                    <th class="px-3 py-2 font-medium text-slate-700">Vencimento</th>
+                    <th class="px-3 py-2 font-medium text-slate-700">Status</th>
+                    <th class="px-3 py-2 font-medium text-slate-700">Descrição</th>
+                    <th class="px-3 py-2 font-medium text-slate-700">Categoria</th>
+                    <th class="px-3 py-2 font-medium text-slate-700">Valor</th>
+                    <th class="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody id="bills-table" class="divide-y divide-slate-200 bg-white"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="status" class="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700"></section>
+      </main>
+    </div>
+  </body>
+</html>
