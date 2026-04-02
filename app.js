@@ -3,10 +3,34 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const STORAGE_KEY = "financas_supabase_config_v1";
 const EMBEDDED_SUPABASE_URL = "https://pakxecgwpuevczusngoo.supabase.co";
 const EMBEDDED_SUPABASE_ANON_KEY = "sb_publishable_SCD8S0hgJ4gOa7CXyAh3QQ_y2dzysC7";
-const SETUP_SQL = `create table if not exists public.transactions (
+const AUTH_EMAIL_KEY = "financas_auth_email_v1";
+const AUTH_REMEMBER_EMAIL_KEY = "financas_auth_remember_email_v1";
+const UI_ACTIVE_TAB_KEY = "financas_active_tab_v1";
+const SETUP_SQL = `create table if not exists public.cards (
+  id bigserial primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  limit_cents int,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists uq_cards_user_name on public.cards(user_id, name);
+
+create table if not exists public.categories (
+  id bigserial primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  kind text not null check (kind in ('income','expense','credit','bill')),
+  name text not null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists uq_categories_user_kind_name on public.categories(user_id, kind, name);
+
+create table if not exists public.transactions (
   id bigserial primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   kind text not null check (kind in ('income','expense','credit')),
+  card_id bigint references public.cards(id) on delete set null,
   date date not null,
   description text not null,
   category text,
@@ -14,7 +38,10 @@ const SETUP_SQL = `create table if not exists public.transactions (
   created_at timestamptz not null default now()
 );
 
+alter table public.transactions add column if not exists card_id bigint references public.cards(id) on delete set null;
+
 create index if not exists idx_transactions_user_date on public.transactions(user_id, date);
+create index if not exists idx_transactions_user_card_date on public.transactions(user_id, card_id, date);
 
 create table if not exists public.bills (
   id bigserial primary key,
@@ -58,20 +85,34 @@ create table if not exists public.balances (
 
 create index if not exists idx_balances_user_date on public.balances(user_id, date);
 
+alter table public.cards enable row level security;
+alter table public.categories enable row level security;
 alter table public.transactions enable row level security;
 alter table public.bills enable row level security;
 alter table public.recurring_bills enable row level security;
 alter table public.balances enable row level security;
 
+drop policy if exists "cards_rw_own" on public.cards;
+create policy "cards_rw_own" on public.cards
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "categories_rw_own" on public.categories;
+create policy "categories_rw_own" on public.categories
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "transactions_rw_own" on public.transactions;
 create policy "transactions_rw_own" on public.transactions
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "bills_rw_own" on public.bills;
 create policy "bills_rw_own" on public.bills
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "recurring_bills_rw_own" on public.recurring_bills;
 create policy "recurring_bills_rw_own" on public.recurring_bills
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "balances_rw_own" on public.balances;
 create policy "balances_rw_own" on public.balances
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 `;
@@ -101,6 +142,14 @@ function isAuthLockError(message) {
   return String(message || "").includes("Lock broken by another request");
 }
 
+function kindLabel(kind) {
+  if (kind === "income") return "Entrada";
+  if (kind === "expense") return "Despesa";
+  if (kind === "credit") return "Cartão";
+  if (kind === "bill") return "Conta";
+  return kind;
+}
+
 function isMissingTablesError(message) {
   const m = String(message || "").toLowerCase();
   return (
@@ -118,6 +167,41 @@ function setupUI() {
 
 function setSettingsButtonVisible(visible) {
   $("btn-open-settings").classList.toggle("hidden", !visible);
+}
+
+function getActiveTab() {
+  const raw = localStorage.getItem(UI_ACTIVE_TAB_KEY);
+  if (raw === "dashboard" || raw === "lancar" || raw === "contas" || raw === "relatorios" || raw === "cadastros") return raw;
+  return "dashboard";
+}
+
+function setActiveTab(tab) {
+  localStorage.setItem(UI_ACTIVE_TAB_KEY, tab);
+  const app = $("app");
+  const tabTargets = app.querySelectorAll("[data-tab-target]");
+  tabTargets.forEach((btn) => {
+    const isActive = btn.getAttribute("data-tab-target") === tab;
+    btn.classList.toggle("bg-slate-900", isActive);
+    btn.classList.toggle("text-white", isActive);
+    btn.classList.toggle("hover:bg-slate-800", isActive);
+    btn.classList.toggle("text-slate-700", !isActive);
+    btn.classList.toggle("hover:bg-slate-50", !isActive);
+  });
+
+  const sections = app.querySelectorAll("[data-tab]");
+  sections.forEach((el) => {
+    el.classList.toggle("hidden", el.getAttribute("data-tab") !== tab);
+  });
+
+  const containers = app.querySelectorAll("[data-tab-container]");
+  containers.forEach((container) => {
+    const anyVisible = Array.from(container.querySelectorAll("[data-tab]")).some((child) => !child.classList.contains("hidden"));
+    container.classList.toggle("hidden", !anyVisible);
+  });
+}
+
+function setInitialTab() {
+  setActiveTab(getActiveTab());
 }
 
 function getEmbeddedConfig() {
@@ -196,13 +280,6 @@ function nowISOMonth() {
   return `${yyyy}-${mm}`;
 }
 
-function kindLabel(kind) {
-  if (kind === "income") return "Entrada";
-  if (kind === "expense") return "Despesa";
-  if (kind === "credit") return "Fatura";
-  return kind;
-}
-
 function loadConfig() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -242,6 +319,11 @@ let authSubscriptionUnsubscribe = null;
 let refreshInFlight = false;
 let refreshQueued = false;
 let authActionInFlight = false;
+let dataUserId = null;
+let cardsCache = [];
+let categoriesCache = [];
+let seededDefaultsForUser = false;
+let lastMonthSnapshot = null;
 
 function getConfigFromUrlParams() {
   const params = new URLSearchParams(window.location.search);
@@ -270,7 +352,14 @@ async function ensureClient() {
     return null;
   }
   setSettingsButtonVisible(!getEmbeddedConfig());
-  supabase = createClient(cfg.url, cfg.anon);
+  supabase = createClient(cfg.url, cfg.anon, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storage: localStorage,
+    },
+  });
   return supabase;
 }
 
@@ -281,6 +370,37 @@ function showOnly(section) {
     el.classList.toggle("hidden", id !== section);
   }
   $("btn-signout").classList.toggle("hidden", section !== "app");
+}
+
+function readRememberEmailState() {
+  return localStorage.getItem(AUTH_REMEMBER_EMAIL_KEY) === "1";
+}
+
+function applyRememberEmailState(checked) {
+  localStorage.setItem(AUTH_REMEMBER_EMAIL_KEY, checked ? "1" : "0");
+}
+
+function storeRememberedEmail(email) {
+  localStorage.setItem(AUTH_EMAIL_KEY, email);
+}
+
+function clearRememberedEmail() {
+  localStorage.removeItem(AUTH_EMAIL_KEY);
+}
+
+function loadAuthFormDefaults() {
+  const remember = readRememberEmailState();
+  const rememberedEmail = localStorage.getItem(AUTH_EMAIL_KEY) || "";
+  $("remember-email").checked = remember;
+  if (rememberedEmail) $("auth-email").value = rememberedEmail;
+}
+
+function persistEmailIfNeeded() {
+  const email = $("auth-email").value.trim();
+  const remember = $("remember-email").checked;
+  applyRememberEmailState(remember);
+  if (remember && email) storeRememberedEmail(email);
+  if (!remember) clearRememberedEmail();
 }
 
 function syncSettingsUI() {
@@ -309,16 +429,24 @@ function setKpis({ incomeCents, expenseCents, creditCents, netCents, balanceCent
   $("kpi-net").classList.toggle("text-emerald-700", netCents >= 0);
 }
 
+function findCardNameById(cardId) {
+  if (!cardId) return "";
+  const c = cardsCache.find((x) => x.id === cardId);
+  return c?.name || "";
+}
+
 function renderTxRows(rows) {
   const tbody = $("tx-table");
   tbody.innerHTML = "";
   for (const r of rows) {
+    const cardName = r.card?.name || findCardNameById(r.card_id);
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td class="px-3 py-2 whitespace-nowrap">${r.date}</td>
       <td class="px-3 py-2 whitespace-nowrap">${kindLabel(r.kind)}</td>
       <td class="px-3 py-2">${escapeHtml(r.description)}</td>
       <td class="px-3 py-2">${escapeHtml(r.category || "")}</td>
+      <td class="px-3 py-2">${escapeHtml(cardName)}</td>
       <td class="px-3 py-2 whitespace-nowrap font-medium">${formatBRLFromCents(r.amount_cents)}</td>
       <td class="px-3 py-2 whitespace-nowrap text-right">
         <button data-tx-id="${r.id}" class="btn-del-tx rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium hover:bg-slate-50">Excluir</button>
@@ -394,6 +522,82 @@ function renderRecurringRows(rows) {
   });
 }
 
+function renderCardsRegistry(rows) {
+  const tbody = $("cards-table");
+  tbody.innerHTML = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="px-3 py-2">${escapeHtml(r.name)}</td>
+      <td class="px-3 py-2 whitespace-nowrap">${r.limit_cents == null ? "—" : formatBRLFromCents(r.limit_cents)}</td>
+      <td class="px-3 py-2 whitespace-nowrap text-right">
+        <button data-card-id="${r.id}" class="btn-del-card rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium hover:bg-slate-50">Excluir</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll(".btn-del-card").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = Number(btn.getAttribute("data-card-id"));
+      await deleteCard(id);
+    });
+  });
+}
+
+function renderCategoriesRegistry(rows) {
+  const tbody = $("categories-table");
+  tbody.innerHTML = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="px-3 py-2 whitespace-nowrap">${escapeHtml(kindLabel(r.kind))}</td>
+      <td class="px-3 py-2">${escapeHtml(r.name)}</td>
+      <td class="px-3 py-2 whitespace-nowrap text-right">
+        <button data-cat-id="${r.id}" class="btn-del-cat rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium hover:bg-slate-50">Excluir</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll(".btn-del-cat").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = Number(btn.getAttribute("data-cat-id"));
+      await deleteCategory(id);
+    });
+  });
+}
+
+function renderCardsSummary(cards, txRows, startIso, endIso) {
+  const tbody = $("cards-summary-table");
+  tbody.innerHTML = "";
+
+  const spentByCard = new Map();
+  for (const t of txRows) {
+    if (t.kind !== "credit") continue;
+    if (!t.card_id) continue;
+    spentByCard.set(t.card_id, (spentByCard.get(t.card_id) || 0) + t.amount_cents);
+  }
+
+  for (const c of cards) {
+    const spent = spentByCard.get(c.id) || 0;
+    const limit = c.limit_cents == null ? null : c.limit_cents;
+    const available = limit == null ? null : limit - spent;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="px-3 py-2">${escapeHtml(c.name)}</td>
+      <td class="px-3 py-2 whitespace-nowrap">${limit == null ? "—" : formatBRLFromCents(limit)}</td>
+      <td class="px-3 py-2 whitespace-nowrap font-medium text-fuchsia-700">${formatBRLFromCents(spent)}</td>
+      <td class="px-3 py-2 whitespace-nowrap">${available == null ? "—" : formatBRLFromCents(available)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  if (!cards.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="px-3 py-3 text-slate-600" colspan="4">Nenhum cartão cadastrado. Abra “Cadastros” e adicione.</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -418,6 +622,239 @@ async function requireAuth() {
   return null;
 }
 
+function monthKeyFromPicker() {
+  const v = $("month-picker").value;
+  return String(v || "");
+}
+
+function setTxKindUI() {
+  const kind = $("tx-kind").value;
+  $("tx-card-wrap").classList.toggle("hidden", kind !== "credit");
+  rebuildCategoryDatalists();
+}
+
+function setAfterOpenBillsKpi(projectedCents, billsOpenCents) {
+  const v = projectedCents - billsOpenCents;
+  $("kpi-after-open-bills").textContent = formatBRLFromCents(v);
+  $("kpi-after-open-bills").classList.toggle("text-rose-700", v < 0);
+  $("kpi-after-open-bills").classList.toggle("text-emerald-700", v >= 0);
+}
+
+function renderMainChart({ incomeCents, expenseCents, creditCents, billsPaidCents }) {
+  const svg = $("main-chart");
+  const w = 520;
+  const h = 120;
+  const pad = 18;
+  const barH = 20;
+
+  const outflow = expenseCents + creditCents + billsPaidCents;
+  const max = Math.max(incomeCents, outflow, 1);
+
+  const incomeW = Math.round(((w - pad * 2) * incomeCents) / max);
+  const outflowW = Math.round(((w - pad * 2) * outflow) / max);
+
+  const segExpense = outflow === 0 ? 0 : Math.round((outflowW * expenseCents) / outflow);
+  const segCredit = outflow === 0 ? 0 : Math.round((outflowW * creditCents) / outflow);
+  const segBills = Math.max(0, outflowW - segExpense - segCredit);
+
+  const incomeY = 32;
+  const outflowY = 78;
+
+  const textIncome = escapeHtml(formatBRLFromCents(incomeCents));
+  const textOut = escapeHtml(formatBRLFromCents(outflow));
+
+  svg.innerHTML = `
+    <rect x="0" y="0" width="${w}" height="${h}" fill="transparent"></rect>
+
+    <text x="${pad}" y="20" font-size="11" fill="#334155">Entradas</text>
+    <rect x="${pad}" y="${incomeY}" rx="10" ry="10" width="${w - pad * 2}" height="${barH}" fill="#e2e8f0"></rect>
+    <rect x="${pad}" y="${incomeY}" rx="10" ry="10" width="${incomeW}" height="${barH}" fill="#10b981"></rect>
+    <text x="${pad}" y="${incomeY + 15}" font-size="11" fill="#0f172a">${textIncome}</text>
+
+    <text x="${pad}" y="66" font-size="11" fill="#334155">Saídas</text>
+    <rect x="${pad}" y="${outflowY}" rx="10" ry="10" width="${w - pad * 2}" height="${barH}" fill="#e2e8f0"></rect>
+    <rect x="${pad}" y="${outflowY}" rx="10" ry="10" width="${outflowW}" height="${barH}" fill="#64748b"></rect>
+    <rect x="${pad}" y="${outflowY}" rx="10" ry="10" width="${segExpense}" height="${barH}" fill="#ef4444"></rect>
+    <rect x="${pad + segExpense}" y="${outflowY}" width="${segCredit}" height="${barH}" fill="#d946ef"></rect>
+    <rect x="${pad + segExpense + segCredit}" y="${outflowY}" width="${segBills}" height="${barH}" fill="#64748b"></rect>
+    <text x="${pad}" y="${outflowY + 15}" font-size="11" fill="#0f172a">${textOut}</text>
+  `;
+}
+
+function rebuildCategoryDatalists() {
+  const kind = $("tx-kind").value;
+  const txList = $("tx-cat-list");
+  const billList = $("bill-cat-list");
+  txList.innerHTML = "";
+  billList.innerHTML = "";
+
+  const txOptions = categoriesCache.filter((c) => c.kind === kind).map((c) => c.name);
+  for (const name of txOptions) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    txList.appendChild(opt);
+  }
+
+  const billOptions = categoriesCache.filter((c) => c.kind === "bill").map((c) => c.name);
+  for (const name of billOptions) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    billList.appendChild(opt);
+  }
+}
+
+function rebuildCardSelect() {
+  const sel = $("tx-card");
+  sel.innerHTML = "";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "Selecione";
+  sel.appendChild(empty);
+  for (const c of cardsCache) {
+    const opt = document.createElement("option");
+    opt.value = String(c.id);
+    opt.textContent = c.name;
+    sel.appendChild(opt);
+  }
+}
+
+function openRegistry() {
+  setActiveTab("cadastros");
+}
+
+function closeRegistry() {
+  setActiveTab("dashboard");
+}
+
+function openMonthReport() {
+  $("month-report-wrap").classList.remove("hidden");
+}
+
+function closeMonthReport() {
+  $("month-report-wrap").classList.add("hidden");
+}
+
+async function copyMonthReport() {
+  const text = $("month-report-text").value || "";
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus("Relatório copiado.", "success");
+  } catch {
+    $("month-report-text").focus();
+    $("month-report-text").select();
+    setStatus("Selecionei o relatório. Copie (Ctrl+C).", "info");
+  }
+}
+
+function buildMonthReportText(snapshot) {
+  if (!snapshot) return "";
+  const {
+    month,
+    incomeCents,
+    expenseCents,
+    creditCents,
+    billsPaidCents,
+    billsOpenCents,
+    openingBalanceCents,
+    projectedCents,
+    balanceLastCents,
+    topExpenseCategories,
+    topCreditByCard,
+  } = snapshot;
+
+  const lines = [];
+  lines.push(`Relatório ${month}`);
+  lines.push("");
+  lines.push(`Saldo anterior: ${formatBRLFromCents(openingBalanceCents)}`);
+  lines.push(`Saldo no mês (último): ${balanceLastCents == null ? "—" : formatBRLFromCents(balanceLastCents)}`);
+  lines.push("");
+  lines.push(`Entradas: ${formatBRLFromCents(incomeCents)}`);
+  lines.push(`Despesas: ${formatBRLFromCents(expenseCents)}`);
+  lines.push(`Cartão: ${formatBRLFromCents(creditCents)}`);
+  lines.push(`Contas pagas: ${formatBRLFromCents(billsPaidCents)}`);
+  lines.push(`Contas em aberto: ${formatBRLFromCents(billsOpenCents)}`);
+  lines.push("");
+  lines.push(`Saldo projetado (saldo anterior + entradas - saídas): ${formatBRLFromCents(projectedCents)}`);
+  lines.push(`Se pagar as contas em aberto: ${formatBRLFromCents(projectedCents - billsOpenCents)}`);
+
+  if (topExpenseCategories.length) {
+    lines.push("");
+    lines.push("Top despesas por categoria");
+    for (const item of topExpenseCategories) {
+      lines.push(`- ${item.name}: ${formatBRLFromCents(item.total_cents)}`);
+    }
+  }
+
+  if (topCreditByCard.length) {
+    lines.push("");
+    lines.push("Cartões (gasto no mês)");
+    for (const item of topCreditByCard) {
+      lines.push(`- ${item.name}: ${formatBRLFromCents(item.total_cents)}`);
+    }
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
+async function ensureDefaults(userId) {
+  if (seededDefaultsForUser && dataUserId === userId) return;
+  const client = await ensureClient();
+  if (!client) return;
+
+  const defaults = [
+    { kind: "income", name: "Salário" },
+    { kind: "income", name: "Freelance" },
+    { kind: "income", name: "Outros" },
+    { kind: "expense", name: "Alimentação" },
+    { kind: "expense", name: "Transporte" },
+    { kind: "expense", name: "Moradia" },
+    { kind: "expense", name: "Saúde" },
+    { kind: "expense", name: "Educação" },
+    { kind: "expense", name: "Lazer" },
+    { kind: "expense", name: "Assinaturas" },
+    { kind: "expense", name: "Compras" },
+    { kind: "expense", name: "Outros" },
+    { kind: "credit", name: "Compras" },
+    { kind: "credit", name: "Assinaturas" },
+    { kind: "credit", name: "Outros" },
+    { kind: "bill", name: "Aluguel" },
+    { kind: "bill", name: "Internet" },
+    { kind: "bill", name: "Energia" },
+    { kind: "bill", name: "Água" },
+    { kind: "bill", name: "Telefone" },
+    { kind: "bill", name: "Outros" },
+  ].map((d) => ({ user_id: userId, ...d }));
+
+  const res = await client.from("categories").upsert(defaults, { onConflict: "user_id,kind,name", ignoreDuplicates: true });
+  if (res.error) return;
+  seededDefaultsForUser = true;
+  dataUserId = userId;
+}
+
+async function loadCardsAndCategories() {
+  const client = await ensureClient();
+  if (!client) return;
+  const user = await requireAuth();
+  if (!user) return;
+
+  await ensureDefaults(user.id);
+
+  const cardsRes = await client.from("cards").select("id, name, limit_cents").order("name", { ascending: true });
+  const catsRes = await client.from("categories").select("id, kind, name").order("kind", { ascending: true }).order("name", { ascending: true });
+
+  if (cardsRes.error) throw new Error(cardsRes.error.message);
+  if (catsRes.error) throw new Error(catsRes.error.message);
+
+  cardsCache = cardsRes.data || [];
+  categoriesCache = catsRes.data || [];
+
+  rebuildCardSelect();
+  rebuildCategoryDatalists();
+  renderCardsRegistry(cardsCache);
+  renderCategoriesRegistry(categoriesCache);
+}
+
 async function refreshDashboard() {
   if (refreshInFlight) {
     refreshQueued = true;
@@ -435,13 +872,14 @@ async function refreshDashboard() {
   }
 
   $("user-label").textContent = user.email ? `Conectado: ${user.email}` : `Conectado`;
+  setActiveTab(getActiveTab());
 
   const { startIso, endIso } = monthRangeFromMonthInput($("month-picker").value);
   setStatus("Carregando dados…");
 
   const txPromise = client
     .from("transactions")
-    .select("id, kind, date, description, category, amount_cents")
+    .select("id, kind, date, description, category, amount_cents, card_id, card:cards(name)")
     .gte("date", startIso)
     .lt("date", endIso)
     .order("date", { ascending: true })
@@ -465,23 +903,41 @@ async function refreshDashboard() {
     .limit(1)
     .maybeSingle();
 
+  const openingBalancePromise = client
+    .from("balances")
+    .select("id, date, bank, balance_cents")
+    .lt("date", startIso)
+    .order("date", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   const recurringPromise = client
     .from("recurring_bills")
     .select("id, description, category, amount_cents, day_of_month, start_ym, end_ym")
     .order("description", { ascending: true });
 
-  const [txRes, billsRes, balRes, rbRes] = await Promise.all([txPromise, billsPromise, balancePromise, recurringPromise]);
+  const metaPromise = loadCardsAndCategories().catch((e) => e);
 
-  const firstError = txRes.error || billsRes.error || balRes.error || rbRes.error;
+  const [txRes, billsRes, balRes, openingRes, rbRes, metaRes] = await Promise.all([
+    txPromise,
+    billsPromise,
+    balancePromise,
+    openingBalancePromise,
+    recurringPromise,
+    metaPromise,
+  ]);
+
+  const firstError = txRes.error || billsRes.error || balRes.error || openingRes.error || rbRes.error || (metaRes instanceof Error ? metaRes : null);
   if (firstError) {
     setupUI();
-    if (isMissingTablesError(firstError.message)) {
+    if (isMissingTablesError(firstError.message || firstError)) {
       showOnly("setup");
       setStatus("As tabelas ainda não existem no Supabase. Use o Setup do banco para criar tudo.", "error");
       return;
     }
     setStatus(
-      `Erro ao ler dados: ${firstError.message}. Se for a primeira vez, crie as tabelas e as políticas no Supabase.`,
+      `Erro ao ler dados: ${firstError.message || firstError}. Se for a primeira vez, crie as tabelas e as políticas no Supabase.`,
       "error",
     );
     return;
@@ -509,11 +965,57 @@ async function refreshDashboard() {
 
   const netCents = incomeCents - (expenseCents + creditCents + billsPaidCents);
   const balanceCents = balRes.data ? balRes.data.balance_cents : null;
+  const openingBalanceCents = openingRes.data ? openingRes.data.balance_cents : 0;
+  const availableCents = openingBalanceCents + incomeCents;
+  const projectedCents = openingBalanceCents + incomeCents - (expenseCents + creditCents + billsPaidCents);
 
   setKpis({ incomeCents, expenseCents, creditCents, netCents, balanceCents, billsOpenCents });
+  $("kpi-opening-balance").textContent = formatBRLFromCents(openingBalanceCents);
+  $("kpi-available").textContent = formatBRLFromCents(availableCents);
+  $("kpi-projected").textContent = formatBRLFromCents(projectedCents);
+  setAfterOpenBillsKpi(projectedCents, billsOpenCents);
+
   renderTxRows(txRows);
   renderBillsRows(billRows);
   renderRecurringRows(rbRows);
+  renderCardsSummary(cardsCache, txRows, startIso, endIso);
+  renderMainChart({ incomeCents, expenseCents, creditCents, billsPaidCents });
+
+  const expenseByCat = new Map();
+  for (const t of txRows) {
+    if (t.kind !== "expense") continue;
+    const key = t.category || "Sem categoria";
+    expenseByCat.set(key, (expenseByCat.get(key) || 0) + t.amount_cents);
+  }
+  const topExpenseCategories = Array.from(expenseByCat.entries())
+    .map(([name, total_cents]) => ({ name, total_cents }))
+    .sort((a, b) => b.total_cents - a.total_cents)
+    .slice(0, 8);
+
+  const creditByCard = new Map();
+  for (const t of txRows) {
+    if (t.kind !== "credit") continue;
+    const key = findCardNameById(t.card_id) || "Sem cartão";
+    creditByCard.set(key, (creditByCard.get(key) || 0) + t.amount_cents);
+  }
+  const topCreditByCard = Array.from(creditByCard.entries())
+    .map(([name, total_cents]) => ({ name, total_cents }))
+    .sort((a, b) => b.total_cents - a.total_cents);
+
+  lastMonthSnapshot = {
+    month: $("month-picker").value,
+    incomeCents,
+    expenseCents,
+    creditCents,
+    billsPaidCents,
+    billsOpenCents,
+    openingBalanceCents,
+    projectedCents,
+    balanceLastCents: balanceCents,
+    topExpenseCategories,
+    topCreditByCard,
+  };
+
   showOnly("app");
   setStatus("Pronto.", "success");
   } finally {
@@ -536,16 +1038,20 @@ async function addTx() {
   const description = $("tx-desc").value.trim();
   const category = $("tx-cat").value.trim() || null;
   const amount_cents = parseAmountToCents($("tx-amount").value);
+  const card_id = kind === "credit" ? Number($("tx-card").value || "") || null : null;
 
   if (!date) throw new Error("Informe a data.");
   if (!description) throw new Error("Informe a descrição.");
 
-  const { error } = await client.from("transactions").insert([{ user_id: user.id, kind, date, description, category, amount_cents }]);
+  const { error } = await client
+    .from("transactions")
+    .insert([{ user_id: user.id, kind, date, description, category, amount_cents, card_id }]);
   if (error) throw new Error(error.message);
 
   $("tx-desc").value = "";
   $("tx-cat").value = "";
   $("tx-amount").value = "";
+  $("tx-card").value = "";
   await refreshDashboard();
 }
 
@@ -729,6 +1235,66 @@ async function generateRecurringForSelectedMonth() {
   await refreshDashboard();
 }
 
+async function addCard() {
+  const client = await ensureClient();
+  if (!client) return;
+  const user = await requireAuth();
+  if (!user) return;
+
+  const name = $("card-name").value.trim();
+  const limitRaw = $("card-limit").value.trim();
+  const limit_cents = limitRaw ? parseAmountToCents(limitRaw) : null;
+  if (!name) throw new Error("Informe o nome do cartão.");
+
+  const { error } = await client.from("cards").insert([{ user_id: user.id, name, limit_cents }]);
+  if (error) throw new Error(error.message);
+
+  $("card-name").value = "";
+  $("card-limit").value = "";
+  await loadCardsAndCategories();
+  await refreshDashboard();
+}
+
+async function deleteCard(id) {
+  const client = await ensureClient();
+  if (!client) return;
+  const { error } = await client.from("cards").delete().eq("id", id);
+  if (error) {
+    setStatus(`Erro ao excluir cartão: ${error.message}`, "error");
+    return;
+  }
+  await loadCardsAndCategories();
+  await refreshDashboard();
+}
+
+async function addCategory() {
+  const client = await ensureClient();
+  if (!client) return;
+  const user = await requireAuth();
+  if (!user) return;
+
+  const kind = $("cat-kind").value;
+  const name = $("cat-name").value.trim();
+  if (!name) throw new Error("Informe o nome da categoria.");
+
+  const { error } = await client.from("categories").insert([{ user_id: user.id, kind, name }]);
+  if (error) throw new Error(error.message);
+
+  $("cat-name").value = "";
+  await loadCardsAndCategories();
+}
+
+async function deleteCategory(id) {
+  const client = await ensureClient();
+  if (!client) return;
+  const { error } = await client.from("categories").delete().eq("id", id);
+  if (error) {
+    setStatus(`Erro ao excluir categoria: ${error.message}`, "error");
+    return;
+  }
+  await loadCardsAndCategories();
+}
+
 async function signIn() {
   if (authActionInFlight) return;
   authActionInFlight = true;
@@ -738,6 +1304,8 @@ async function signIn() {
   const email = $("auth-email").value.trim();
   const password = $("auth-password").value;
   if (!email || !password) throw new Error("Informe e-mail e senha.");
+
+  persistEmailIfNeeded();
 
   let res = await client.auth.signInWithPassword({ email, password });
   if (res.error && isAuthLockError(res.error.message)) {
@@ -761,6 +1329,8 @@ async function signUp() {
   const password = $("auth-password").value;
   if (!email || !password) throw new Error("Informe e-mail e senha.");
 
+  persistEmailIfNeeded();
+
   let res = await client.auth.signUp({ email, password });
   if (res.error && isAuthLockError(res.error.message)) {
     await new Promise((r) => setTimeout(r, 400));
@@ -773,12 +1343,33 @@ async function signUp() {
   }
 }
 
+async function signInMagicLink() {
+  if (authActionInFlight) return;
+  authActionInFlight = true;
+  try {
+    const client = await ensureClient();
+    if (!client) return;
+    const email = $("auth-email").value.trim();
+    if (!email) throw new Error("Informe seu e-mail.");
+
+    persistEmailIfNeeded();
+
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
+    const res = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
+    if (res.error) throw new Error(res.error.message);
+    setStatus("Link enviado para seu e-mail. Abra e volte para finalizar o login.", "success");
+  } finally {
+    authActionInFlight = false;
+  }
+}
+
 async function signOut() {
   const client = await ensureClient();
   if (!client) return;
   await client.auth.signOut();
   showOnly("auth");
   setStatus("Saiu.", "info");
+  loadAuthFormDefaults();
 }
 
 function bindUI() {
@@ -788,6 +1379,13 @@ function bindUI() {
   $("btn-close-setup").addEventListener("click", () => showOnly("auth"));
   $("btn-back-to-auth").addEventListener("click", () => showOnly("auth"));
   $("btn-copy-setup").addEventListener("click", copySetupSQL);
+  $("btn-close-registry").addEventListener("click", closeRegistry);
+
+  $("tab-dashboard").addEventListener("click", () => setActiveTab("dashboard"));
+  $("tab-lancar").addEventListener("click", () => setActiveTab("lancar"));
+  $("tab-contas").addEventListener("click", () => setActiveTab("contas"));
+  $("tab-relatorios").addEventListener("click", () => setActiveTab("relatorios"));
+  $("tab-cadastros").addEventListener("click", () => setActiveTab("cadastros"));
 
   $("btn-save-settings").addEventListener("click", async () => {
     try {
@@ -807,24 +1405,59 @@ function bindUI() {
     await bootstrap();
   });
 
-  $("btn-signin").addEventListener("click", async () => {
+  $("auth-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const btn = $("btn-signin");
+    const prevText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Entrando...";
+    setStatus("Entrando…", "info");
     try {
       await signIn();
     } catch (e) {
       setStatus(String(e?.message || e), "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prevText;
     }
   });
 
   $("btn-signup").addEventListener("click", async () => {
+    const btn = $("btn-signup");
+    const prevText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Criando...";
+    setStatus("Criando conta…", "info");
     try {
       await signUp();
     } catch (e) {
       setStatus(String(e?.message || e), "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prevText;
+    }
+  });
+
+  $("btn-magiclink").addEventListener("click", async () => {
+    const btn = $("btn-magiclink");
+    const prevText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Enviando...";
+    setStatus("Enviando link…", "info");
+    try {
+      await signInMagicLink();
+    } catch (e) {
+      setStatus(String(e?.message || e), "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prevText;
     }
   });
 
   $("btn-signout").addEventListener("click", signOut);
   $("btn-refresh").addEventListener("click", refreshDashboard);
+
+  $("tx-kind").addEventListener("change", setTxKindUI);
 
   $("btn-add-tx").addEventListener("click", async () => {
     try {
@@ -866,6 +1499,31 @@ function bindUI() {
     }
   });
 
+  $("btn-add-card").addEventListener("click", async () => {
+    try {
+      await addCard();
+      setStatus("Cartão cadastrado.", "success");
+    } catch (e) {
+      setStatus(String(e?.message || e), "error");
+    }
+  });
+
+  $("btn-add-category").addEventListener("click", async () => {
+    try {
+      await addCategory();
+      setStatus("Categoria cadastrada.", "success");
+    } catch (e) {
+      setStatus(String(e?.message || e), "error");
+    }
+  });
+
+  $("btn-month-report").addEventListener("click", () => {
+    $("month-report-text").value = buildMonthReportText(lastMonthSnapshot);
+    openMonthReport();
+  });
+  $("btn-close-report").addEventListener("click", closeMonthReport);
+  $("btn-copy-report").addEventListener("click", copyMonthReport);
+
   $("month-picker").addEventListener("change", refreshDashboard);
 }
 
@@ -876,6 +1534,8 @@ async function bootstrap() {
   $("bal-date").value = nowISODate();
   $("rb-start").value = nowISOMonth();
   $("rb-day").value = "5";
+  closeMonthReport();
+  setTxKindUI();
 
   const fromUrl = getConfigFromUrlParams();
   if (fromUrl) {
@@ -903,6 +1563,7 @@ async function bootstrap() {
 
   showOnly("auth");
   setStatus("Entre para acessar seus dados.", "info");
+  loadAuthFormDefaults();
 
   const client = await ensureClient();
   if (!client) return;
@@ -923,9 +1584,12 @@ async function bootstrap() {
   if (!user) {
     showOnly("auth");
     setStatus("Entre para acessar seus dados.", "info");
+    loadAuthFormDefaults();
     return;
   }
 
+  showOnly("app");
+  setInitialTab();
   await refreshDashboard();
 }
 
