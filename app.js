@@ -138,6 +138,47 @@ function setStatus(message, tone = "info") {
   el.textContent = message;
 }
 
+function withTimeout(promise, ms, message) {
+  let timeoutId = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([
+    promise.finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
+    }),
+    timeoutPromise,
+  ]);
+}
+
+async function fetchWithTimeout(url, options, ms) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+async function checkSupabaseReachability() {
+  const cfg = getEffectiveConfig();
+  if (!cfg) return;
+  const healthUrl = `${cfg.url.replace(/\/$/, "")}/auth/v1/health`;
+  const res = await fetchWithTimeout(
+    healthUrl,
+    {
+      method: "GET",
+      headers: { apikey: cfg.anon },
+    },
+    8000,
+  );
+  if (!res.ok) {
+    throw new Error(`Falha ao conectar no Supabase (HTTP ${res.status}).`);
+  }
+}
+
 function isAuthLockError(message) {
   return String(message || "").includes("Lock broken by another request");
 }
@@ -1307,10 +1348,20 @@ async function signIn() {
 
   persistEmailIfNeeded();
 
-  let res = await client.auth.signInWithPassword({ email, password });
+  await withTimeout(checkSupabaseReachability(), 9000, "Sem conexão com o Supabase. Verifique URL, rede e bloqueadores.");
+
+  let res = await withTimeout(
+    client.auth.signInWithPassword({ email, password }),
+    15000,
+    "Login demorou demais. Verifique rede/bloqueadores e tente novamente.",
+  );
   if (res.error && isAuthLockError(res.error.message)) {
     await new Promise((r) => setTimeout(r, 400));
-    res = await client.auth.signInWithPassword({ email, password });
+    res = await withTimeout(
+      client.auth.signInWithPassword({ email, password }),
+      15000,
+      "Login demorou demais. Verifique rede/bloqueadores e tente novamente.",
+    );
   }
   if (res.error) throw new Error(res.error.message);
   await refreshDashboard();
@@ -1331,10 +1382,20 @@ async function signUp() {
 
   persistEmailIfNeeded();
 
-  let res = await client.auth.signUp({ email, password });
+  await withTimeout(checkSupabaseReachability(), 9000, "Sem conexão com o Supabase. Verifique URL, rede e bloqueadores.");
+
+  let res = await withTimeout(
+    client.auth.signUp({ email, password }),
+    15000,
+    "Criação de conta demorou demais. Verifique rede/bloqueadores e tente novamente.",
+  );
   if (res.error && isAuthLockError(res.error.message)) {
     await new Promise((r) => setTimeout(r, 400));
-    res = await client.auth.signUp({ email, password });
+    res = await withTimeout(
+      client.auth.signUp({ email, password }),
+      15000,
+      "Criação de conta demorou demais. Verifique rede/bloqueadores e tente novamente.",
+    );
   }
   if (res.error) throw new Error(res.error.message);
   setStatus("Conta criada. Se o seu Supabase exigir confirmação por e-mail, confirme e depois entre.", "success");
@@ -1354,8 +1415,14 @@ async function signInMagicLink() {
 
     persistEmailIfNeeded();
 
+    await withTimeout(checkSupabaseReachability(), 9000, "Sem conexão com o Supabase. Verifique URL, rede e bloqueadores.");
+
     const redirectTo = `${window.location.origin}${window.location.pathname}`;
-    const res = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
+    const res = await withTimeout(
+      client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } }),
+      15000,
+      "Envio do link demorou demais. Verifique rede/bloqueadores e tente novamente.",
+    );
     if (res.error) throw new Error(res.error.message);
     setStatus("Link enviado para seu e-mail. Abra e volte para finalizar o login.", "success");
   } finally {
@@ -1594,4 +1661,13 @@ async function bootstrap() {
 }
 
 bindUI();
+window.addEventListener("unhandledrejection", (event) => {
+  const msg = event?.reason?.message || event?.reason || "Erro inesperado.";
+  setStatus(String(msg), "error");
+});
+window.addEventListener("error", (event) => {
+  const msg = event?.error?.message || event?.message || "Erro inesperado.";
+  setStatus(String(msg), "error");
+});
+
 bootstrap().catch((e) => setStatus(String(e?.message || e), "error"));
